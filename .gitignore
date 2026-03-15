@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+public/
+
+# Generated data (auto-généré par generate-showcase.js)
+dev/data/showcase.json
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# ia files
+task.md
+SPEC_V2.md
