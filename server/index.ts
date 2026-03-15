@@ -3,11 +3,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { BrowserSessionService } from "./services/browserSession.js";
 import { DiagnosticsService } from "./services/diagnostics.js";
+import { GitBridgeService } from "./services/gitBridge.js";
+import { PersistenceService } from "./services/persistence.js";
 import { RepoIndexer } from "./services/repoIndexer.js";
 import { RuntimeBridgeService } from "./services/runtimeBridge.js";
 import { registerBrowserTools } from "./tools/browserTools.js";
 import { registerCoreTools } from "./tools/coreTools.js";
 import { registerDiagnosticsTools } from "./tools/diagnosticsTools.js";
+import { registerGitTools } from "./tools/gitTools.js";
 import { registerRepoGraphTools } from "./tools/repoGraphTools.js";
 import { registerRepoTools } from "./tools/repoTools.js";
 import { registerRuntimeTools } from "./tools/runtimeTools.js";
@@ -23,7 +26,9 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-const repoIndexer = new RepoIndexer(ROOT_DIR);
+const persistence = new PersistenceService(ROOT_DIR);
+const repoIndexer = new RepoIndexer(ROOT_DIR, persistence);
+const gitBridge = new GitBridgeService(ROOT_DIR);
 const browserSession = new BrowserSessionService({
   maxConsoleLogs: MAX_CONSOLE_LOGS,
 });
@@ -63,7 +68,12 @@ registerDiagnosticsTools(server, {
   diagnostics,
 });
 
+registerGitTools(server, {
+  gitBridge,
+});
+
 async function main() {
+  await repoIndexer.loadCachedIndex();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

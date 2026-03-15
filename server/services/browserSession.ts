@@ -6,12 +6,18 @@ import {
   type Page,
 } from "playwright";
 
+type Tab = {
+  id: string;
+  page: Page;
+  consoleLogs: string[];
+  navigationHistory: string[];
+};
+
 type BrowserSessionState = {
   browser: Browser | null;
   context: BrowserContext | null;
-  page: Page | null;
-  consoleLogs: string[];
-  navigationHistory: string[];
+  tabs: Map<string, Tab>;
+  activeTabId: string | null;
 };
 
 export type PageInteractiveElement = {
@@ -29,14 +35,21 @@ export type PageState = {
   recentConsoleLogs: string[];
 };
 
+export type TabSnapshot = {
+  id: string;
+  url: string;
+  title: string;
+  active: boolean;
+};
+
 export class BrowserSessionService {
   private readonly maxConsoleLogs: number;
+  private nextTabId = 1;
   private readonly state: BrowserSessionState = {
     browser: null,
     context: null,
-    page: null,
-    consoleLogs: [],
-    navigationHistory: [],
+    tabs: new Map(),
+    activeTabId: null,
   };
 
   constructor(options?: { maxConsoleLogs?: number }) {
@@ -44,39 +57,98 @@ export class BrowserSessionService {
   }
 
   isReady(): boolean {
-    return Boolean(this.state.page);
+    return this.state.activeTabId !== null;
   }
 
+  // ── Tab management ────────────────────────────────────────────────────────
+
+  async newTab(url?: string, waitUntil: "load" | "domcontentloaded" | "networkidle" | "commit" = "load"): Promise<TabSnapshot> {
+    const context = await this.ensureContext();
+    const page = await context.newPage();
+    const id = `tab_${this.nextTabId++}`;
+    const tab: Tab = { id, page, consoleLogs: [], navigationHistory: [] };
+
+    this.attachPageListeners(tab);
+    this.state.tabs.set(id, tab);
+    this.state.activeTabId = id;
+
+    if (url) {
+      await page.goto(url, { waitUntil, timeout: 30_000 });
+    }
+
+    return this.toTabSnapshot(tab);
+  }
+
+  async switchTab(tabId: string): Promise<TabSnapshot> {
+    const tab = this.state.tabs.get(tabId);
+    if (!tab) {
+      throw new Error(`Onglet introuvable: ${tabId}`);
+    }
+    this.state.activeTabId = tabId;
+    return this.toTabSnapshot(tab);
+  }
+
+  async listTabs(): Promise<TabSnapshot[]> {
+    const snapshots: TabSnapshot[] = [];
+    for (const tab of this.state.tabs.values()) {
+      snapshots.push(await this.toTabSnapshotAsync(tab));
+    }
+    return snapshots;
+  }
+
+  async closeTab(tabId?: string): Promise<void> {
+    const id = tabId ?? this.state.activeTabId;
+    if (!id) {
+      throw new Error("Aucun onglet ouvert.");
+    }
+    const tab = this.state.tabs.get(id);
+    if (!tab) {
+      throw new Error(`Onglet introuvable: ${id}`);
+    }
+
+    await tab.page.close().catch(() => undefined);
+    this.state.tabs.delete(id);
+
+    if (this.state.activeTabId === id) {
+      const remaining = [...this.state.tabs.keys()];
+      this.state.activeTabId = remaining[remaining.length - 1] ?? null;
+    }
+  }
+
+  // ── Active tab operations ─────────────────────────────────────────────────
+
   getNavigationHistory(): string[] {
-    return [...this.state.navigationHistory];
+    const tab = this.activeTab();
+    return tab ? [...tab.navigationHistory] : [];
   }
 
   async open(url: string, waitUntil: "load" | "domcontentloaded" | "networkidle" | "commit" = "load") {
-    const page = await this.ensurePage();
+    let tab = this.activeTab();
 
-    if (this.state.page) {
-      const currentUrl = this.state.page.url();
-      if (currentUrl && currentUrl !== "about:blank") {
-        this.state.navigationHistory.push(currentUrl);
-        if (this.state.navigationHistory.length > 10) {
-          this.state.navigationHistory.shift();
-        }
+    if (!tab) {
+      await this.newTab();
+      tab = this.activeTab()!;
+    }
+
+    const currentUrl = tab.page.url();
+    if (currentUrl && currentUrl !== "about:blank") {
+      tab.navigationHistory.push(currentUrl);
+      if (tab.navigationHistory.length > 10) {
+        tab.navigationHistory.shift();
       }
     }
 
-    await page.goto(url, {
-      waitUntil,
-      timeout: 30_000,
-    });
+    await tab.page.goto(url, { waitUntil, timeout: 30_000 });
 
     return {
-      url: page.url(),
-      title: await page.title(),
+      tabId: tab.id,
+      url: tab.page.url(),
+      title: await tab.page.title(),
     };
   }
 
   async executeJs(expression: string) {
-    const page = await this.ensurePage();
+    const page = await this.ensureActivePage();
     const result = await page.evaluate((expr: string) => {
       // Risque : eval() exécute du code arbitraire dans le contexte de la page.
       // Usage limité à un navigateur local contrôlé — ne jamais exposer à une entrée non fiable.
@@ -84,31 +156,22 @@ export class BrowserSessionService {
       return eval(expr);
     }, expression);
 
-    return {
-      expression,
-      result,
-    };
+    return { expression, result };
   }
 
   async screenshot(outputPath: string, fullPage = true) {
-    const page = await this.ensurePage();
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-    });
-
-    return {
-      outputPath,
-      currentUrl: page.url(),
-    };
+    const page = await this.ensureActivePage();
+    await page.screenshot({ path: outputPath, fullPage });
+    return { outputPath, currentUrl: page.url() };
   }
 
   async getPageState(): Promise<PageState | null> {
-    if (!this.state.page) {
+    const tab = this.activeTab();
+    if (!tab) {
       return null;
     }
 
-    const page = this.state.page;
+    const page = tab.page;
     const url = page.url();
     const title = await page.title().catch(() => "");
 
@@ -140,82 +203,100 @@ export class BrowserSessionService {
       title,
       visibleText,
       interactiveElements,
-      recentConsoleLogs: [...this.state.consoleLogs].slice(-20),
+      recentConsoleLogs: [...tab.consoleLogs].slice(-20),
     };
   }
 
   readConsoleLogs(limit?: number, clearAfterRead?: boolean) {
-    const logs =
-      typeof limit === "number"
-        ? this.state.consoleLogs.slice(-limit)
-        : [...this.state.consoleLogs];
+    const tab = this.activeTab();
+    const logs = tab
+      ? typeof limit === "number"
+        ? tab.consoleLogs.slice(-limit)
+        : [...tab.consoleLogs]
+      : [];
 
-    if (clearAfterRead) {
-      this.state.consoleLogs.length = 0;
+    if (clearAfterRead && tab) {
+      tab.consoleLogs.length = 0;
     }
 
-    return {
-      count: logs.length,
-      logs,
-    };
+    return { count: logs.length, logs };
   }
 
   async close() {
-    if (this.state.page) {
-      await this.state.page.close().catch(() => undefined);
+    for (const tab of this.state.tabs.values()) {
+      await tab.page.close().catch(() => undefined);
     }
+    this.state.tabs.clear();
+    this.state.activeTabId = null;
 
     if (this.state.context) {
       await this.state.context.close().catch(() => undefined);
+      this.state.context = null;
     }
 
     if (this.state.browser) {
       await this.state.browser.close().catch(() => undefined);
+      this.state.browser = null;
     }
-
-    this.state.page = null;
-    this.state.context = null;
-    this.state.browser = null;
-    this.state.consoleLogs = [];
-    this.state.navigationHistory = [];
   }
 
-  private async ensurePage(): Promise<Page> {
-    if (!this.state.browser) {
-      this.state.browser = await chromium.launch({
-        headless: true,
-      });
-    }
+  // ── Private helpers ───────────────────────────────────────────────────────
 
+  private activeTab(): Tab | null {
+    if (!this.state.activeTabId) return null;
+    return this.state.tabs.get(this.state.activeTabId) ?? null;
+  }
+
+  private async ensureActivePage(): Promise<Page> {
+    const tab = this.activeTab();
+    if (tab) return tab.page;
+    await this.newTab();
+    return this.activeTab()!.page;
+  }
+
+  private async ensureContext(): Promise<BrowserContext> {
+    if (!this.state.browser) {
+      this.state.browser = await chromium.launch({ headless: true });
+    }
     if (!this.state.context) {
       this.state.context = await this.state.browser.newContext({
         viewport: { width: 1440, height: 900 },
       });
     }
-
-    if (!this.state.page) {
-      this.state.page = await this.state.context.newPage();
-      this.attachPageListeners(this.state.page);
-    }
-
-    return this.state.page;
+    return this.state.context;
   }
 
-  private attachPageListeners(page: Page) {
-    page.on("console", (message: ConsoleMessage) => {
-      this.pushConsoleLog(`[${message.type()}] ${message.text()}`);
+  private attachPageListeners(tab: Tab) {
+    tab.page.on("console", (message: ConsoleMessage) => {
+      this.pushConsoleLog(tab, `[${message.type()}] ${message.text()}`);
     });
-
-    page.on("pageerror", (error: Error) => {
-      this.pushConsoleLog(`[pageerror] ${error.message}`);
+    tab.page.on("pageerror", (error: Error) => {
+      this.pushConsoleLog(tab, `[pageerror] ${error.message}`);
     });
   }
 
-  private pushConsoleLog(entry: string) {
-    this.state.consoleLogs.push(entry);
-
-    if (this.state.consoleLogs.length > this.maxConsoleLogs) {
-      this.state.consoleLogs.shift();
+  private pushConsoleLog(tab: Tab, entry: string) {
+    tab.consoleLogs.push(entry);
+    if (tab.consoleLogs.length > this.maxConsoleLogs) {
+      tab.consoleLogs.shift();
     }
+  }
+
+  private toTabSnapshot(tab: Tab): TabSnapshot {
+    return {
+      id: tab.id,
+      url: tab.page.url(),
+      title: "",
+      active: tab.id === this.state.activeTabId,
+    };
+  }
+
+  private async toTabSnapshotAsync(tab: Tab): Promise<TabSnapshot> {
+    return {
+      id: tab.id,
+      url: tab.page.url(),
+      title: await tab.page.title().catch(() => ""),
+      active: tab.id === this.state.activeTabId,
+    };
   }
 }

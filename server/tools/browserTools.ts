@@ -85,12 +85,69 @@ export function registerBrowserTools(server: McpServer, options: RegisterBrowser
     "browser_close",
     {
       title: "Browser close",
-      description: "Ferme la session navigateur active.",
+      description: "Ferme la session navigateur active (tous les onglets).",
       inputSchema: {},
     },
     async () => {
       await options.browserSession.close();
       return ok("Session navigateur fermee.");
+    }
+  );
+
+  server.registerTool(
+    "browser_new_tab",
+    {
+      title: "Browser new tab",
+      description: "Ouvre un nouvel onglet et le rend actif. Peut naviguer directement vers une URL.",
+      inputSchema: {
+        url: z.string().url().optional(),
+        waitUntil: z.enum(["load", "domcontentloaded", "networkidle", "commit"]).optional(),
+      },
+    },
+    async ({ url, waitUntil }) => {
+      return json(await options.browserSession.newTab(url, waitUntil));
+    }
+  );
+
+  server.registerTool(
+    "browser_list_tabs",
+    {
+      title: "Browser list tabs",
+      description: "Liste tous les onglets ouverts avec leur id, URL, titre et état actif.",
+      inputSchema: {},
+    },
+    async () => {
+      const tabs = await options.browserSession.listTabs();
+      return json({ count: tabs.length, tabs });
+    }
+  );
+
+  server.registerTool(
+    "browser_switch_tab",
+    {
+      title: "Browser switch tab",
+      description: "Change l'onglet actif.",
+      inputSchema: {
+        tabId: z.string().min(1),
+      },
+    },
+    async ({ tabId }) => {
+      return json(await options.browserSession.switchTab(tabId));
+    }
+  );
+
+  server.registerTool(
+    "browser_close_tab",
+    {
+      title: "Browser close tab",
+      description: "Ferme un onglet spécifique (ou l'onglet actif si aucun id fourni).",
+      inputSchema: {
+        tabId: z.string().optional(),
+      },
+    },
+    async ({ tabId }) => {
+      await options.browserSession.closeTab(tabId);
+      return ok(`Onglet ${tabId ?? "actif"} fermé.`);
     }
   );
 }

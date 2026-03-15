@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
+import type { PersistenceService } from "./persistence.js";
 
 const DEFAULT_EXCLUDED_DIRS = new Set([
   ".git",
@@ -441,10 +442,23 @@ function analyzeSourceFile(rootDir: string, absolutePath: string, sourceFile: ts
 
 export class RepoIndexer {
   private readonly rootDir: string;
+  private readonly persistence: PersistenceService | null;
   private lastIndex: RepoIndex | null = null;
 
-  constructor(rootDir: string) {
+  constructor(rootDir: string, persistence?: PersistenceService) {
     this.rootDir = path.resolve(rootDir);
+    this.persistence = persistence ?? null;
+  }
+
+  async loadCachedIndex(): Promise<RepoIndex | null> {
+    if (!this.persistence) {
+      return null;
+    }
+    const cached = await this.persistence.loadIndex();
+    if (cached) {
+      this.lastIndex = cached;
+    }
+    return cached;
   }
 
   getRootDir(): string {
@@ -477,6 +491,7 @@ export class RepoIndexer {
     };
 
     this.lastIndex = repoIndex;
+    await this.persistence?.saveIndex(repoIndex);
     return repoIndex;
   }
 
