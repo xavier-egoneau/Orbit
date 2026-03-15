@@ -1,21 +1,20 @@
 # Tasks — Orbit MCP Server
 
-## [Phase A — Persistance] [séquentiel]
-> L'index repo est recalculé à chaque redémarrage (coûteux). On le cache sur disque.
+## [Fondations] [séquentiel]
+> Refactor de l'architecture avant d'ajouter des langages
 
-- [x] Créer `server/services/persistence.ts` — save/load du RepoIndex en JSON sur disque
-- [x] Intégrer dans `RepoIndexer` : charger le cache au démarrage, sauvegarder après `buildIndex()`
+- [x] Définir l'interface `LanguagePlugin` dans `server/services/plugins/languagePlugin.ts`
+- [x] Extraire la logique JS/TS vers `server/services/plugins/typescriptPlugin.ts`
+- [x] Refactorer `RepoIndexer` pour utiliser un registre de plugins
 
-## [Phase B — Support git] [séquentiel]
-> Nouvelle capacité indépendante — touche des fichiers distincts.
+## [Nouveaux plugins] [parallélisable]
+> Tâches indépendantes — fichiers distincts
 
-- [x] Créer `server/services/gitBridge.ts` — wrapper git (status, log, diff, blame)
-- [x] Créer `server/tools/gitTools.ts` — tools MCP : `git_status`, `git_log`, `git_diff`, `git_blame`
-- [x] Enregistrer dans `server/index.ts`
+- [x] Créer `server/services/plugins/pythonPlugin.ts` — regex-based : symboles (class/def), routes via décorateurs (@app.get, @router.post), imports
+- [x] Créer `server/services/plugins/genericPlugin.ts` — fallback pour Go, Ruby, Rust, etc. : symboles simples, pas de routes
 
-## [Phase C — Multi-onglets] [séquentiel]
-> Refactor de `browserSession.ts` — impacte aussi `diagnostics.ts`.
+## [Intégration] [séquentiel]
+> Câbler les plugins et valider
 
-- [x] Refactorer `browserSession.ts` : gérer plusieurs pages (Map<id, Page>, page active)
-- [x] Ajouter `browser_new_tab`, `browser_switch_tab`, `browser_list_tabs`, `browser_close_tab` dans `browserTools.ts`
-- [x] Mettre à jour `diagnostics.ts` pour opérer sur la page active (déjà correct via activeTab())
+- [x] Enregistrer les plugins dans `RepoIndexer` et mettre à jour les extensions indexables
+- [x] Vérifier la compilation TypeScript

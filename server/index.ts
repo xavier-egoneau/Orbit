@@ -5,6 +5,9 @@ import { BrowserSessionService } from "./services/browserSession.js";
 import { DiagnosticsService } from "./services/diagnostics.js";
 import { GitBridgeService } from "./services/gitBridge.js";
 import { PersistenceService } from "./services/persistence.js";
+import { GenericPlugin } from "./services/plugins/genericPlugin.js";
+import { PythonPlugin } from "./services/plugins/pythonPlugin.js";
+import { TypeScriptPlugin } from "./services/plugins/typescriptPlugin.js";
 import { RepoIndexer } from "./services/repoIndexer.js";
 import { RuntimeBridgeService } from "./services/runtimeBridge.js";
 import { registerBrowserTools } from "./tools/browserTools.js";
@@ -27,7 +30,10 @@ const server = new McpServer({
 });
 
 const persistence = new PersistenceService(ROOT_DIR);
-const repoIndexer = new RepoIndexer(ROOT_DIR, persistence);
+const repoIndexer = new RepoIndexer(ROOT_DIR, persistence)
+  .registerPlugin(new TypeScriptPlugin())
+  .registerPlugin(new PythonPlugin())
+  .registerPlugin(new GenericPlugin());
 const gitBridge = new GitBridgeService(ROOT_DIR);
 const browserSession = new BrowserSessionService({
   maxConsoleLogs: MAX_CONSOLE_LOGS,
