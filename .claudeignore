@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+.next/
+out/
+.nuxt/
+.output/
+
+# Environment & secrets
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Git internals
+.git/
+
+# IDE & OS
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Logs & cache
+*.log
+.cache/
+.turbo/
+coverage/
+.nyc_output/
+
+# Package locks (large, not useful for Claude)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

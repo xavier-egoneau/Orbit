@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "tidewave-like": {
+      "command": "node",
+      "args": ["./mcp-server/dist/index.js"],
+      "env": {
+        "MCP_ROOT_DIR": "."
+      }
+    }
+  }
+}
